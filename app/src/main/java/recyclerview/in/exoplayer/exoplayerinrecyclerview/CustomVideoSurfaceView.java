@@ -129,6 +129,10 @@ public class CustomVideoSurfaceView extends FrameLayout
             String uriPath = uri.getPath();
             extension = uriPath.substring(uriPath.lastIndexOf("."));
         }
+        // Produces DataSource instances through which media data is loaded.
+        mDataSourceFactory = new DefaultDataSourceFactory(getContext(), Util.getUserAgent(getContext(), "spotlight"));
+
+
         MediaSource videoSource = null;
         if(extension.equals(".m3u8")) {
             videoSource = new HlsMediaSource.Factory(mDataSourceFactory).createMediaSource(uri);;
