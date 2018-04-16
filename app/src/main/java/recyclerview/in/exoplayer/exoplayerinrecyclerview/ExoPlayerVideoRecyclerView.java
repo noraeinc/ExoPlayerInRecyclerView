@@ -168,7 +168,8 @@ public class ExoPlayerVideoRecyclerView extends RecyclerView {
         addedVideo = true;
         rowParent = holder.parent;
 
-        videoSurfaceView.startPlayer(Uri.parse(videoInfoList.get(targetPosition).videoUrl));
+        //videoSurfaceView.startPlayer(Uri.parse(videoInfoList.get(targetPosition).videoUrl));
+        videoSurfaceView.startPlayer(Uri.parse("http://cdn-dev.spotlight.social/uclips0317/eliot1019_2018_04_12_03_06_.mp4"));
     }
 
     private int getVisibleVideoSurfaceHeight(int playPosition) {

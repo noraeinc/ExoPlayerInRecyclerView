@@ -51,7 +51,7 @@ public class ExoPlayerRecyclerViewActivity01 extends Activity {
 
         for (int index = 0; index < 100; index++) {
 
-            videoInfoList.add(new VideoInfo("http://html5demos.com/assets/dizzy.mp4"));
+            videoInfoList.add(new VideoInfo("http://cdn-dev.spotlight.social/uclips0317/eliot1019_2018_04_12_03_06_.mp4"));
         }
         recycleView = (ExoPlayerVideoRecyclerView) findViewById(R.id.video_demo_recycler_list);
         recycleView.setVideoInfoList(videoInfoList);

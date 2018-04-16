@@ -2,36 +2,39 @@ package recyclerview.in.exoplayer.exoplayerinrecyclerview;
 
 import android.content.Context;
 import android.graphics.Point;
-import android.media.MediaCodec;
 import android.net.Uri;
-import android.os.Handler;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.Display;
 import android.view.Gravity;
 import android.view.LayoutInflater;
-import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 
-import com.google.android.exoplayer.ExoPlaybackException;
-import com.google.android.exoplayer.ExoPlayer;
-import com.google.android.exoplayer.MediaCodecAudioTrackRenderer;
-import com.google.android.exoplayer.MediaCodecTrackRenderer;
-import com.google.android.exoplayer.MediaCodecVideoTrackRenderer;
-import com.google.android.exoplayer.audio.AudioCapabilities;
-import com.google.android.exoplayer.audio.AudioCapabilitiesReceiver;
-import com.google.android.exoplayer.audio.AudioTrack;
-import com.google.android.exoplayer.extractor.ExtractorSampleSource;
-import com.google.android.exoplayer.upstream.Allocator;
-import com.google.android.exoplayer.upstream.DataSource;
-import com.google.android.exoplayer.upstream.DefaultAllocator;
-import com.google.android.exoplayer.upstream.DefaultBandwidthMeter;
-import com.google.android.exoplayer.upstream.DefaultUriDataSource;
-import com.google.android.exoplayer.util.Util;
+
+import com.google.android.exoplayer2.ExoPlaybackException;
+import com.google.android.exoplayer2.ExoPlayerFactory;
+import com.google.android.exoplayer2.PlaybackParameters;
+import com.google.android.exoplayer2.Player;
+import com.google.android.exoplayer2.SimpleExoPlayer;
+import com.google.android.exoplayer2.Timeline;
+import com.google.android.exoplayer2.source.ExtractorMediaSource;
+import com.google.android.exoplayer2.source.MediaSource;
+import com.google.android.exoplayer2.source.TrackGroupArray;
+import com.google.android.exoplayer2.trackselection.AdaptiveTrackSelection;
+import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
+import com.google.android.exoplayer2.trackselection.TrackSelection;
+import com.google.android.exoplayer2.trackselection.TrackSelectionArray;
+import com.google.android.exoplayer2.upstream.BandwidthMeter;
+import com.google.android.exoplayer2.upstream.DataSource;
+import com.google.android.exoplayer2.upstream.DefaultBandwidthMeter;
+import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory;
+import com.google.android.exoplayer2.util.Util;
+import com.google.android.exoplayer2.source.hls.HlsMediaSource;
+
 
 import java.net.CookieHandler;
 import java.net.CookieManager;
@@ -41,23 +44,16 @@ import java.net.CookiePolicy;
  * リストでの動画再生用にカスタマイズした特殊な{@link android.view.View View}。
  */
 public class CustomVideoSurfaceView extends FrameLayout
-        implements AudioCapabilitiesReceiver.Listener,
-        MediaCodecVideoTrackRenderer.EventListener,
-        MediaCodecAudioTrackRenderer.EventListener,
+        implements
         SurfaceHolder.Callback,
         View.OnClickListener {
 
-    private static final int BUFFER_SEGMENT_SIZE = 64 * 1024;
     private static CustomVideoSurfaceView instance;
 
     //fields about playing video
-    private AudioCapabilitiesReceiver audioCapabilitiesReceiver;
-    private ExoPlayer player;
-    private static final CookieManager defaultCookieManager;
-    private ExtractorSampleSource sampleSource;
-    private Handler mainHandler;
-    private Allocator allocator;
-    private DataSource dataSource;
+    private SimpleExoPlayer player;
+    private DefaultTrackSelector mDefaultTrackSelector;
+    private DataSource.Factory mDataSourceFactory;
 
     private Uri currentUri;
     private Context appContext;
@@ -68,15 +64,8 @@ public class CustomVideoSurfaceView extends FrameLayout
     private FrameLayout.LayoutParams layoutParams;
     private SurfaceView videoSurfaceView;
 
-    private MediaCodecVideoTrackRenderer videoRenderer;
-    private MediaCodecAudioTrackRenderer audioRenderer;
 
     private boolean surfaceViewViable = false;
-
-    static {
-        defaultCookieManager = new CookieManager();
-        defaultCookieManager.setCookiePolicy(CookiePolicy.ACCEPT_ORIGINAL_SERVER);
-    }
 
 
     public void startPlayer(Uri uri) {
@@ -85,17 +74,24 @@ public class CustomVideoSurfaceView extends FrameLayout
 
         player.seekTo(0);
 
-        // Build the sample source
-        sampleSource =
-                new ExtractorSampleSource(uri, dataSource, allocator, 10 * BUFFER_SEGMENT_SIZE);
+        String extension = "";
+        if(uri != null) {
+            String uriPath = uri.getPath();
+            extension = uriPath.substring(uriPath.lastIndexOf("."));
+        }
+        // Produces DataSource instances through which media data is loaded.
+        mDataSourceFactory = new DefaultDataSourceFactory(getContext(), Util.getUserAgent(getContext(), "spotlight"));
 
-        // Build the track renderers
-        videoRenderer = new MediaCodecVideoTrackRenderer(sampleSource,
-                MediaCodec.VIDEO_SCALING_MODE_SCALE_TO_FIT, -1, mainHandler, this, -1);
-        audioRenderer = new MediaCodecAudioTrackRenderer(sampleSource, mainHandler, this);
 
-        // Build the ExoPlayer and start playback
-        player.prepare(videoRenderer, audioRenderer);
+        MediaSource videoSource = null;
+        if(extension.equals(".m3u8")) {
+            videoSource = new HlsMediaSource.Factory(mDataSourceFactory).createMediaSource(uri);;
+        } else {
+            videoSource = new ExtractorMediaSource.Factory(mDataSourceFactory).createMediaSource(uri);;
+        }
+
+        // Prepare the mExoPlayer with the source.
+        player.prepare(videoSource);
         player.setPlayWhenReady(true);
 
         playVideo();
@@ -103,13 +99,9 @@ public class CustomVideoSurfaceView extends FrameLayout
 
     //method to actually do the play
     private void playVideo() {
-
         if (surfaceViewViable) {
-            player.sendMessage(videoRenderer,
-                    MediaCodecVideoTrackRenderer.MSG_SET_SURFACE,
-                    videoSurfaceView.getHolder().getSurface());
+            player.setVideoSurface(videoSurfaceView.getHolder().getSurface());
         }
-
     }
 
     //release the player
@@ -125,21 +117,7 @@ public class CustomVideoSurfaceView extends FrameLayout
      */
     public void onRelease() {
         releasePlayer();
-
-        audioCapabilitiesReceiver.unregister();
-
-        if (mainHandler != null) {
-            mainHandler = null;
-        }
-
-        allocator = null;
-        dataSource = null;
-        videoRenderer = null;
-        audioRenderer = null;
-        sampleSource = null;
-
         instance = null;
-
     }
 
     public static CustomVideoSurfaceView getInstance(Context context) {
@@ -151,28 +129,16 @@ public class CustomVideoSurfaceView extends FrameLayout
         }
     }
 
-    /**
-     * コンストラクタ。
-     * {@inheritDoc}
-     */
     private CustomVideoSurfaceView(Context context) {
         super(context);
         initialize(context);
     }
 
-    /**
-     * コンストラクタ。
-     * {@inheritDoc}
-     */
     private CustomVideoSurfaceView(Context context, AttributeSet attrs) {
         super(context, attrs);
         initialize(context);
     }
 
-    /**
-     * コンストラクタ。
-     * {@inheritDoc}
-     */
     private CustomVideoSurfaceView(Context context, AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
         initialize(context);
@@ -185,24 +151,18 @@ public class CustomVideoSurfaceView extends FrameLayout
         }
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
     public void onClick(View v) {
         player.setPlayWhenReady(!player.getPlayWhenReady());
     }
 
 
-    /**
-     * 初期化処理を行う。
-     */
     protected void initialize(Context context) {
         appContext = context.getApplicationContext();
 
         setVisibility(INVISIBLE);
 
-        // 画面の中央位置を取得する。
+        // Acquire the center position of the screen
         Display display = ((WindowManager) getContext().getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay();
         Point point = new Point();
         display.getSize(point);
@@ -211,34 +171,15 @@ public class CustomVideoSurfaceView extends FrameLayout
         LayoutInflater inflater = (LayoutInflater) context.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
         this.addView(inflater.inflate(R.layout.exoplayer_video_surface_view, null));
 
-
         videoSurfaceView = (SurfaceView) this.findViewById(R.id.video_surface_view);
         initializeVideoPlayer();
     }
 
     private void initializeVideoPlayer() {
-        mainHandler = new Handler();
-
-
-        allocator = new DefaultAllocator(BUFFER_SEGMENT_SIZE);
-        dataSource =
-                new DefaultUriDataSource(appContext,
-                        new DefaultBandwidthMeter(mainHandler, null),
-                        Util.getUserAgent(appContext, "ExoPlayerDemo"));
-
 
         videoSurfaceView.getHolder().addCallback(this);
 
-        CookieHandler currentHandler = CookieHandler.getDefault();
-        if (currentHandler != defaultCookieManager) {
-            CookieHandler.setDefault(defaultCookieManager);
-        }
-
-        audioCapabilitiesReceiver = new AudioCapabilitiesReceiver(appContext, this);
-        audioCapabilitiesReceiver.register();
-
         makePlayer();
-
     }
 
     private void makePlayer() {
@@ -246,56 +187,84 @@ public class CustomVideoSurfaceView extends FrameLayout
             return;
         }
 
-        player = ExoPlayer.Factory.newInstance(2);
-        player.addListener(new ExoPlayer.Listener() {
+        // Measures bandwidth during playback. Can be null if not required.
+        BandwidthMeter bandwidthMeter = new DefaultBandwidthMeter();
+        TrackSelection.Factory videoTrackSelectionFactory = new AdaptiveTrackSelection.Factory(bandwidthMeter);
+
+        mDefaultTrackSelector = new DefaultTrackSelector(videoTrackSelectionFactory);
+
+        player = ExoPlayerFactory.newSimpleInstance(getContext(), mDefaultTrackSelector);
+        player.addListener(new Player.EventListener() {
+            @Override
+            public void onTimelineChanged(Timeline timeline, Object manifest, int reason) {
+
+            }
+
+            @Override
+            public void onTracksChanged(TrackGroupArray trackGroups, TrackSelectionArray trackSelections) {
+
+            }
+
+            @Override
+            public void onLoadingChanged(boolean isLoading) {
+
+            }
+
             @Override
             public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
-                String text = "playWhenReady=" + playWhenReady + ", playbackState=";
-                switch (playbackState) {
-                    case ExoPlayer.STATE_BUFFERING:
-                        text += "buffering";
+                switch(playbackState) {
+                    case Player.STATE_BUFFERING:
                         setVisibility(VISIBLE);
                         videoSurfaceView.setAlpha(0);
                         videoSurfaceView.setOnClickListener(null);
 
-
                         break;
-                    case ExoPlayer.STATE_ENDED:
+                    case Player.STATE_ENDED:
                         player.seekTo(0);
-                        text += "ended";
                         break;
-                    case ExoPlayer.STATE_IDLE:
-                        text += "idle";
+                    case Player.STATE_IDLE:
                         break;
-                    case ExoPlayer.STATE_PREPARING:
-                        text += "preparing";
-                        break;
-                    case ExoPlayer.STATE_READY:
+                    case Player.STATE_READY:
+                        //videoSurfaceView.setVisibility(View.VISIBLE);
                         videoSurfaceView.setOnClickListener(CustomVideoSurfaceView.this);
                         videoSurfaceView.setAlpha(1);
-                        text += "ready";
+
                         break;
                     default:
-                        text += "unknown";
                         break;
                 }
+            }
 
-                Log.d("20672067", text);
+            @Override
+            public void onRepeatModeChanged(int repeatMode) {
 
             }
 
             @Override
-            public void onPlayWhenReadyCommitted() {
+            public void onShuffleModeEnabledChanged(boolean shuffleModeEnabled) {
+
             }
 
             @Override
             public void onPlayerError(ExoPlaybackException error) {
-                Log.d("20672067", "somethingwrong:" + "onPlayerError:" + error.toString());
+
+            }
+
+            @Override
+            public void onPositionDiscontinuity(int reason) {
+
+            }
+
+            @Override
+            public void onPlaybackParametersChanged(PlaybackParameters playbackParameters) {
+
+            }
+
+            @Override
+            public void onSeekProcessed() {
 
             }
         });
-
-
     }
 
     public void stopPlayer() {
@@ -345,46 +314,6 @@ public class CustomVideoSurfaceView extends FrameLayout
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
         surfaceViewViable = false;
-    }
-
-    @Override
-    public void onDroppedFrames(int count, long elapsed) {
-
-    }
-
-    @Override
-    public void onVideoSizeChanged(int width, int height, int unappliedRotationDegrees, float pixelWidthHeightRatio) {
-        calculateAspectRatio(width, height);
-    }
-
-    @Override
-    public void onDrawnToSurface(Surface surface) {
-    }
-
-    @Override
-    public void onDecoderInitializationError(MediaCodecTrackRenderer.DecoderInitializationException e) {
-    }
-
-    @Override
-    public void onCryptoError(MediaCodec.CryptoException e) {
-    }
-
-    @Override
-    public void onDecoderInitialized(String decoderName, long elapsedRealtimeMs, long initializationDurationMs) {
-    }
-
-    @Override
-    public void onAudioCapabilitiesChanged(AudioCapabilities audioCapabilities) {
-    }
-
-    @Override
-    public void onAudioTrackInitializationError(AudioTrack.InitializationException e) {
-        Log.d("20672067", "somethingwrong:" + "onAudioTrackInitializationError:" + e.toString());
-    }
-
-    @Override
-    public void onAudioTrackWriteError(AudioTrack.WriteException e) {
-        Log.d("20672067", "somethingwrong:" + "onAudioTrackWriteError:" + e.toString());
     }
 
 }
